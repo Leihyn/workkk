@@ -1,62 +1,97 @@
 import TrieMap "mo:base/TrieMap";
 import Text "mo:base/Text";
 import Iter "mo:base/Iter";
+import Principal "mo:base/Principal";
 
-actor {
+actor Faruq {
 
-  public type Key = Text;
-  public type Asset = {
-    name : Text; 
-    age : Nat; 
-    desc : Text
+  //define the types for the account
+  public type AccountId = Text;
+  public type Account = {
+    balance: Nat;
+    owner: Principal;
+    desc: Text;
   };
 
-  stable var assetBackup : [(Key, Asset)] = [];
-  var assetStore = TrieMap.fromEntries<Key, Asset>(assetBackup.vals(), Text.equal, Text.hash);
+  stable var accountBackup: [(AccountId, Account)] = [];
+  var accountStore = TrieMap.fromEntries<AccountId, Account>(accountBackup.vals(), Text.equal, Text.hash);
 
-  public func addAsset(key: Text, name : Text, age : Nat, desc : Text) : async () {
-    assetStore.put (key, {name = name; age = age; desc = desc});
+  //return the caller's principal
+  public shared (msg) func whoami(): async Principal {
+    msg.caller
+  };
+  
+  //create a fundable account with an initial balance
+  public shared func createAccount(id: Text, initialBalance: Nat, desc: Text): async () {
+    let caller =  await whoami();
+    //Endure the account is created by the authenticated user
+    if (accountStore.get(id) == null) {
+      accountStore.put(id, {balance = initialBalance; owner = caller; desc = desc});
+    }
   };
 
-  public query func getAsset(key:Text) : async ?Asset {
-    assetStore.get(key);
-  };
+  //Transfer funds between accounts
+  public shared func transfer(fromId: Text, toId: Text, amount: Nat): async Bool {
+    let caller = await whoami();
+    let fromAccountOpt = accountStore.get(fromId);
+    let toAccountOpt = accountStore.get(toId);
 
-  public func removeAsset(key:Text) : async () {
-    assetStore.delete(key);
-  };
+    switch (fromAccountOpt, toAccountOpt) {
+      case (?fromAccount, ?toAccount) {
+        let isOwner = fromAccount.owner == caller;
+        let hasSufficientFunds = fromAccount.balance >= amount;
 
-  public query func getAllAssets(): async [(Key, Asset)] {
-    Iter.toArray(assetStore.entries());
-  };
+        if (isOwner){
+          if (hasSufficientFunds) {
+            //Deduct amount from sender's account
+            let updatedFromAccount = {
+              fromAccount with balance = fromAccount.balance - amount
+            };
+            accountStore.put(fromId, updatedFromAccount);
 
-  public query func getAssetsCount(): async Nat {
-    assetStore.size();
-  };
+            //add amount to receiver's account
+            let updatedToAccount = {
+              toAccount with balance = toAccount.balance + amount
+            };
+            accountStore.put(toId, updatedToAccount);
 
-  public query func filterAssets(filter: Text) : async [(Key, Asset)] {
-    Iter.toArray(
-        TrieMap.mapFilter<Key, Asset, Asset>(
-          assetStore,
-          Text.equal,
-          Text.hash,
-          func(k, v) {
-            if (Text.contains(v.name, #text filter)) {
-                ?v
-            } else {
-             null
-            }
+            return true; //transfer successful
+          } else {
+            return false; //insufficient funds
           }
-        ).entries()
-      );
+        } else {
+          return false; //sender is not the owner of the account
+        }
+        };
+      case _ {
+        return false; //one or both accounts not found
+      };
+    }
   };
 
-  system func preupgrade(){
-    assetBackup := Iter.toArray(assetStore.entries());
+  // GET account details by ID
+  public query func getAccount(id: Text): async ?Account {
+    accountStore.get(id);
   };
 
-  system func postupgrade(){
-      assetBackup := [];
-  }
+  //get all accounts
+  public query func getAllAccounts(): async [(AccountId, Account)] {
+    Iter.toArray(accountStore.entries());
+  };
+
+  //get the count of all accounts
+  public query func getAccountsCount(): async Nat {
+    accountStore.size();
+  };
+
+  //backup the data before upgrade
+  system func preupgrade() {
+    accountBackup := Iter.toArray(accountStore.entries());
+  };
+
+  //clear backup data after upgrade
+  system func postupgrade() {
+    accountBackup := [];
+  };
 
 };

@@ -42,6 +42,8 @@
     "last 2 edge version"
   ],
   "dependencies": {
+    "@dfinity/agent": "^2.0.0",
+    "@dfinity/auth-client": "^2.0.0",
     "material-icons": "^1.13.1"
   }
 }
